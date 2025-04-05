@@ -1,4 +1,4 @@
-// App.jsx
+// src/ChatApp.jsx
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import "./App.css";
 import WavyBackground from "./WavyBackground";
@@ -33,20 +33,20 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import {
-  vscDarkPlus,
-  vs,
-} from "react-syntax-highlighter/dist/esm/styles/prism";
+import { vscDarkPlus, vs } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import SwipeableDrawer from "@mui/material/SwipeableDrawer";
 import { jsPDF } from "jspdf";
+import { signOut } from "firebase/auth";
+import { auth } from "./firebase";
+import { useNavigate } from "react-router-dom";
 
 // Initialize the Gemini API
 const genAI = new GoogleGenerativeAI("AIzaSyAIF08Blw1WtLmZkzZfW9Z40Y_lb_eKbio");
 
-function App() {
+function ChatApp() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -75,16 +75,16 @@ function App() {
   });
   const [contextWindow, setContextWindow] = useState(10);
   const [suggestedResponses, setSuggestedResponses] = useState([]);
-  const [apiStatus, setApiStatus] = useState("ready"); // "ready", "limited", "error"
+  const [apiStatus, setApiStatus] = useState("ready");
 
-  // Queue for API requests
   const [requestQueue, setRequestQueue] = useState([]);
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+
+  const navigate = useNavigate();
 
   // Apply theme to document element when it changes
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    // Also store the preference in localStorage for persistence
     localStorage.setItem("theme", theme);
   }, [theme]);
 
@@ -103,8 +103,6 @@ function App() {
       try {
         const parsed = JSON.parse(savedConversations);
         setConversations(parsed);
-
-        // If there was an active conversation, try to restore it
         const lastActiveId = localStorage.getItem("lastActiveConversationId");
         if (lastActiveId) {
           const activeConversation = parsed.find((c) => c.id === lastActiveId);
@@ -128,7 +126,6 @@ function App() {
           ? { ...conv, messages: messages }
           : conv
       );
-
       setConversations(updatedConversations);
       localStorage.setItem(
         "conversations",
@@ -140,38 +137,29 @@ function App() {
 
   const processRequestQueue = useCallback(async () => {
     if (isProcessingQueue || requestQueue.length === 0) return;
-
     setIsProcessingQueue(true);
     const request = requestQueue[0];
-
     try {
       await request.execute();
     } catch (error) {
       console.error("Error processing queued request:", error);
       request.reject(error);
     } finally {
-      // Remove the processed request
       setRequestQueue((queue) => queue.slice(1));
-
-      // Add a small delay between requests to avoid rate limiting
       await new Promise((resolve) => setTimeout(resolve, 1000));
       setIsProcessingQueue(false);
-
-      // Process next request if available
       if (requestQueue.length > 1) {
         processRequestQueue();
       }
     }
   }, [requestQueue, isProcessingQueue]);
 
-  // Effect to watch the queue and process requests
   useEffect(() => {
     if (requestQueue.length > 0 && !isProcessingQueue) {
       processRequestQueue();
     }
   }, [requestQueue, isProcessingQueue, processRequestQueue]);
 
-  // Function to add a request to the queue
   const queueGeminiRequest = (requestFunction) => {
     return new Promise((resolve, reject) => {
       const request = {
@@ -185,15 +173,13 @@ function App() {
         },
         reject,
       };
-
       setRequestQueue((queue) => [...queue, request]);
     });
   };
 
   const callGeminiWithRetry = async (callFunction, maxRetries = 3) => {
     let retries = 0;
-    let delay = 1000; // Start with 1 second delay
-
+    let delay = 1000;
     while (retries < maxRetries) {
       try {
         return await callFunction();
@@ -203,25 +189,17 @@ function App() {
           error.message?.includes("429") ||
           error.message?.includes("resource exhausted")
         ) {
-          // Increase retries and calculate exponential backoff
           retries++;
           if (retries >= maxRetries) {
-            throw error; // Max retries reached, propagate the error
+            throw error;
           }
-
-          // Log the backoff
           console.log(
             `Rate limited by Gemini API. Retrying in ${delay / 1000}s...`
           );
           toast.info(`API busy. Retrying in ${delay / 1000}s...`);
-
-          // Wait for the delay period
           await new Promise((resolve) => setTimeout(resolve, delay));
-
-          // Exponential backoff: double delay each time (1s, 2s, 4s)
           delay *= 2;
         } else {
-          // For other errors, don't retry
           throw error;
         }
       }
@@ -233,12 +211,10 @@ function App() {
   const textareaRef = useRef(null);
   const messagesContainerRef = useRef(null);
 
-  // Auto scroll to the latest message when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Check for mobile viewport
   const isMobile = useMediaQuery("(max-width:767px)");
   const isTablet = useMediaQuery("(min-width:768px) and (max-width:1023px)");
 
@@ -246,12 +222,10 @@ function App() {
     if (e) e.preventDefault();
     if (!inputValue.trim() && !imageUpload && !fileUploads.length) return;
 
-    // If no conversation exists, create a new one
     if (!currentConversationId) {
       createNewConversation();
     }
 
-    // Build content with attachments
     let content = inputValue;
     const attachments = [];
 
@@ -265,7 +239,6 @@ function App() {
       });
     }
 
-    // Add user message to the chat
     const userMessage = {
       role: "user",
       content,
@@ -281,34 +254,23 @@ function App() {
     setSuggestedResponses([]);
 
     try {
-      // Call the Gemini API with retry logic
       await callGeminiWithRetry(async () => {
         const generativeModel = genAI.getGenerativeModel({ model });
-
-        // Only use the most recent messages for context to avoid token limits
         const recentMessages = messages.slice(-contextWindow);
-
-        // Format the chat history for the API
         const history = recentMessages.map((msg) => ({
           role: msg.role === "user" ? "user" : "model",
           parts: [{ text: msg.content }],
         }));
 
-        // Create a chat session
         const chat = generativeModel.startChat({
           history,
-          generationConfig: {
-            temperature,
-            maxOutputTokens: maxTokens,
-          },
+          generationConfig: { temperature, maxOutputTokens: maxTokens },
         });
 
-        // Send the message and get response
         const result = await chat.sendMessage(content);
         const response = await result.response;
-        const text = await response.text(); // Fix: Await the text response
+        const text = await response.text();
 
-        // Add the AI response to the chat
         const newMessage = {
           role: "assistant",
           content: text,
@@ -347,7 +309,6 @@ function App() {
     setMessages([]);
     setSidebarOpen(false);
 
-    // Save to local storage
     localStorage.setItem("conversations", JSON.stringify(updatedConversations));
     localStorage.setItem("lastActiveConversationId", newId);
 
@@ -360,19 +321,14 @@ function App() {
       setMessages(conversation.messages || []);
       setCurrentConversationId(id);
       setSidebarOpen(false);
-
-      // Update last active conversation
       localStorage.setItem("lastActiveConversationId", id);
     }
   };
 
   const deleteConversation = (id, e) => {
     if (e) e.stopPropagation();
-
     const updatedConversations = conversations.filter((conv) => conv.id !== id);
     setConversations(updatedConversations);
-
-    // Update localStorage
     localStorage.setItem("conversations", JSON.stringify(updatedConversations));
 
     if (id === currentConversationId) {
@@ -391,11 +347,8 @@ function App() {
       setConversations([]);
       setMessages([]);
       setCurrentConversationId(null);
-
-      // Clear from local storage
       localStorage.removeItem("conversations");
       localStorage.removeItem("lastActiveConversationId");
-
       toast.success("All conversations cleared");
     }
   };
@@ -413,8 +366,6 @@ function App() {
     const recognition = new window.webkitSpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = true;
-
-    // Set language for speech recognition
     recognition.lang = language === "en" ? "en-US" : language;
 
     recognition.onstart = () => {
@@ -426,7 +377,6 @@ function App() {
         .map((result) => result[0])
         .map((result) => result.transcript)
         .join("");
-
       setInputValue(transcript);
     };
 
@@ -468,13 +418,11 @@ function App() {
   };
 
   const downloadConversation = (format = "txt") => {
-    // Build the conversation text
     const conversationText = messages
       .map((msg, i) => `(${i + 1}) ${msg.role.toUpperCase()}: ${msg.content}`)
       .join("\n\n");
 
     if (format === "md") {
-      // Download as Markdown
       const blob = new Blob([conversationText], { type: "text/markdown" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -488,7 +436,6 @@ function App() {
     }
 
     if (format === "pdf") {
-      // Download as PDF
       const pdfContent = conversationText || "No conversation available.";
       const doc = new jsPDF();
       doc.text(pdfContent, 10, 10);
@@ -496,7 +443,6 @@ function App() {
       return;
     }
 
-    // Default to text format
     const blob = new Blob([conversationText], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -510,8 +456,6 @@ function App() {
 
   const regenerateResponse = async (index) => {
     if (isLoading) return;
-
-    // Find the last user message before this assistant message
     const userMessageIndex = messages
       .slice(0, index)
       .map((m) => m.role)
@@ -519,8 +463,6 @@ function App() {
     if (userMessageIndex === -1) return;
 
     const userInput = messages[userMessageIndex].content;
-
-    // Remove all messages after the user message
     const newMessages = messages.slice(0, userMessageIndex + 1);
     setMessages(newMessages);
     setIsLoading(true);
@@ -528,7 +470,6 @@ function App() {
 
     try {
       const generativeModel = genAI.getGenerativeModel({ model });
-
       const history = newMessages.slice(0, userMessageIndex).map((msg) => ({
         role: msg.role === "user" ? "user" : "model",
         parts: [{ text: msg.content }],
@@ -536,10 +477,7 @@ function App() {
 
       const chat = generativeModel.startChat({
         history,
-        generationConfig: {
-          temperature,
-          maxOutputTokens: maxTokens,
-        },
+        generationConfig: { temperature, maxOutputTokens: maxTokens },
       });
 
       const result = await chat.sendMessage(userInput);
@@ -577,7 +515,6 @@ function App() {
     };
     setMessages(updatedMessages);
     setShowActionMenu(null);
-
     toast.success(
       updatedMessages[index].bookmarked
         ? "Message bookmarked"
@@ -589,22 +526,12 @@ function App() {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    // Process each file
     const newUploads = files.map((file) => {
-      // Create URL for image preview
       const url = URL.createObjectURL(file);
-
-      return {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        url: url,
-      };
+      return { name: file.name, size: file.size, type: file.type, url };
     });
 
     setFileUploads((prev) => [...prev, ...newUploads]);
-
-    // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -612,10 +539,7 @@ function App() {
 
   const removeFile = (index) => {
     const newFiles = [...fileUploads];
-
-    // Revoke object URL to prevent memory leaks
     URL.revokeObjectURL(newFiles[index].url);
-
     newFiles.splice(index, 1);
     setFileUploads(newFiles);
   };
@@ -669,10 +593,7 @@ function App() {
   };
 
   const clearFilter = () => {
-    setFilterOptions({
-      bookmarked: false,
-      timeRange: "all",
-    });
+    setFilterOptions({ bookmarked: false, timeRange: "all" });
     setFilterApplied(false);
   };
 
@@ -688,7 +609,6 @@ function App() {
     if (!filterApplied) return messages;
 
     let filtered = [...messages];
-
     if (filterOptions.bookmarked) {
       filtered = filtered.filter((msg) => msg.bookmarked);
     }
@@ -696,7 +616,6 @@ function App() {
     if (filterOptions.timeRange !== "all") {
       const now = new Date();
       let cutoff = new Date();
-
       switch (filterOptions.timeRange) {
         case "today":
           cutoff.setHours(0, 0, 0, 0);
@@ -710,39 +629,31 @@ function App() {
         default:
           break;
       }
-
       filtered = filtered.filter((msg) => new Date(msg.timestamp) >= cutoff);
     }
 
     return filtered;
   };
 
-  // Get the current conversation
   const currentConversation = conversations.find(
     (c) => c.id === currentConversationId
   );
 
-  // Helper function to get conversation summary for display
   const getConversationSummary = (conversation) => {
     if (!conversation.messages || conversation.messages.length === 0) {
       return "Empty conversation";
     }
-
-    // Get the first user message for the summary
     const firstUserMessage = conversation.messages.find(
       (msg) => msg.role === "user"
     );
     if (firstUserMessage) {
-      // Truncate long messages
       return firstUserMessage.content.length > 60
         ? firstUserMessage.content.substring(0, 60) + "..."
         : firstUserMessage.content;
     }
-
     return "Conversation";
   };
 
-  // Custom renderer for code blocks in markdown
   const components = {
     code({ node, inline, className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || "");
@@ -769,19 +680,15 @@ function App() {
           </SyntaxHighlighter>
         </div>
       ) : (
-        <code className={className} {...props}>
-          {children}
-        </code>
+        <code className={className} {...props}>{children}</code>
       );
     },
   };
 
-  // Make sure iOS detection is defined for SwipeableDrawer
   const iOS =
     typeof navigator !== "undefined" &&
     /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-  // Render conversation items with summaries
   const renderConversationItems = () => {
     return conversations.map((conv) => (
       <motion.div
@@ -828,9 +735,7 @@ function App() {
     ));
   };
 
-  // Use either swipeable drawer for mobile or regular sidebar
   const renderSidebar = () => {
-    console.log("Rendering sidebar, sidebarOpen:", sidebarOpen); // Keep this for debugging
     const sidebarContent = (
       <div className="sidebar">
         <div className="sidebar-header">
@@ -878,9 +783,7 @@ function App() {
           {conversations.length === 0 ? (
             <p className="no-conversations">No conversations yet</p>
           ) : (
-            <div className="conversations-list">
-              {renderConversationItems()}
-            </div>
+            <div className="conversations-list">{renderConversationItems()}</div>
           )}
         </div>
 
@@ -915,6 +818,17 @@ function App() {
             }}
           >
             <FiHelpCircle /> Help & FAQ
+          </motion.button>
+          <motion.button
+            className="sidebar-option"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              signOut(auth);
+              navigate("/signin");
+            }}
+          >
+            <FiX /> Sign Out
           </motion.button>
         </div>
       </div>
@@ -963,7 +877,6 @@ function App() {
     );
   };
 
-  // Add this effect after your other useEffect hooks
   useEffect(() => {
     function handleClickOutside(event) {
       const dropdown = document.getElementById("downloadOptions");
@@ -975,12 +888,21 @@ function App() {
         dropdown.classList.remove("show");
       }
     }
-
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
+
+  const handleSignOut = () => {
+    signOut(auth)
+      .then(() => {
+        navigate("/signin");
+      })
+      .catch((error) => {
+        console.error("Error signing out:", error);
+      });
+  };
 
   return (
     <div
@@ -988,10 +910,7 @@ function App() {
         isTablet ? "tablet" : ""
       }`}
     >
-      {/* Make sure WavyBackground is the first component */}
       <WavyBackground />
-
-      {/* Toast Container */}
       <ToastContainer
         position={isMobile ? "bottom-center" : "top-right"}
         autoClose={3000}
@@ -1004,11 +923,7 @@ function App() {
         pauseOnHover
         theme={theme}
       />
-
-      {/* Sidebar */}
       {renderSidebar()}
-
-      {/* Settings Modal */}
       <AnimatePresence>
         {settingsOpen && (
           <motion.div
@@ -1019,7 +934,7 @@ function App() {
             onClick={() => setSettingsOpen(false)}
           >
             <motion.div
-              className="settings-content"
+              class WavyBackgroundlassName="settings-content"
               initial={{ scale: 0.8, y: 20, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.8, y: 20, opacity: 0 }}
@@ -1036,8 +951,6 @@ function App() {
                 </button>
               </div>
               <div className="settings-body">
-                {/* Settings for model, temperature, max tokens */}
-                {/* ...existing code... */}
                 <div className="setting-item">
                   <label>Language</label>
                   <select
@@ -1083,8 +996,6 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Help Modal */}
       <AnimatePresence>
         {helpOpen && (
           <motion.div
@@ -1112,8 +1023,12 @@ function App() {
                 </button>
               </div>
               <div className="help-body">
-                {/* Help content */}
-                {/* ...existing code... */}
+                <p>Need help? Here are some tips:</p>
+                <ul>
+                  <li>Use the mic button for voice input.</li>
+                  <li>Upload images or files with the attachment button.</li>
+                  <li>Switch themes in settings.</li>
+                </ul>
               </div>
               <div className="help-footer">
                 <button
@@ -1127,8 +1042,6 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Main Chat Area */}
       <div
         className={`main-content ${isMobile ? "mobile" : ""} ${
           isTablet ? "tablet" : ""
@@ -1142,10 +1055,7 @@ function App() {
         >
           <button
             className="icon-button menu-button"
-            onClick={() => {
-              console.log("Menu button clicked, current state:", sidebarOpen);
-              setSidebarOpen(true); // Always set to true on click, instead of toggling
-            }}
+            onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
           >
             <FiMenu />
@@ -1228,6 +1138,13 @@ function App() {
                 </button>
               </div>
             </div>
+            <button
+              className="signout-button"
+              onClick={handleSignOut}
+              title="Sign out"
+            >
+              Sign Out
+            </button>
           </div>
         </motion.div>
 
@@ -1415,7 +1332,6 @@ function App() {
             </motion.div>
           )}
 
-          {/* Suggested Response Chips */}
           {!isLoading && suggestedResponses.length > 0 && (
             <motion.div
               className="suggested-responses-container"
@@ -1448,7 +1364,6 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* File Upload Preview Area */}
         {(imageUpload || fileUploads.length > 0) && (
           <div className="file-previews-container">
             {imageUpload && (
@@ -1549,4 +1464,4 @@ function App() {
   );
 }
 
-export default App;
+export default ChatApp;
