@@ -1,46 +1,90 @@
+/* src/Auth.css */
 .auth-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    background: linear-gradient(135deg, #1e1e2f, #2a2a4a);
-    color: #fff;
-    text-align: center;
-    padding: 20px;
-  }
-  
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh; /* Ensures it fills the screen */
+  background: linear-gradient(135deg, #0e1117, #1a1f2a); /* Darker, Grok-like gradient */
+  color: #ffffff;
+  text-align: center;
+  padding: 20px;
+  font-family: 'Inter', Arial, sans-serif; /* Modern font */
+  overflow: hidden; /* Prevents scroll issues */
+  position: relative; /* For potential background effects */
+}
+
+/* Subtle cosmic background effect */
+.auth-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(74, 144, 226, 0.1) 0%, transparent 70%);
+  opacity: 0.3;
+  z-index: 0;
+}
+
+.auth-container h1 {
+  font-size: 2.8rem; /* Slightly larger for impact */
+  margin-bottom: 15px;
+  letter-spacing: 1px; /* Adds a sleek touch */
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); /* Subtle shadow */
+  z-index: 1; /* Above background effect */
+}
+
+.auth-container p {
+  font-size: 1.3rem; /* Bigger for readability */
+  margin-bottom: 40px;
+  opacity: 0.8; /* Slightly faded for contrast */
+  max-width: 500px; /* Keeps it readable on wide screens */
+  z-index: 1;
+}
+
+.google-signin-btn {
+  display: flex;
+  align-items: center;
+  padding: 14px 28px; /* Slightly larger for comfort */
+  font-size: 1.2rem;
+  background-color: #ffffff;
+  color: #1a1f2a; /* Darker text for contrast */
+  border: none;
+  border-radius: 50px; /* More rounded, modern look */
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Deeper shadow */
+  transition: all 0.3s ease; /* Smooth transition for all changes */
+  z-index: 1;
+}
+
+.google-signin-btn:hover {
+  transform: translateY(-4px); /* More pronounced lift */
+  box-shadow: 0 8px 20px rgba(74, 144, 226, 0.4); /* Blue glow on hover */
+  background-color: #f0f4f8; /* Slight color shift */
+}
+
+.google-signin-btn:active {
+  transform: translateY(0); /* Pressed effect */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); /* Reduced shadow */
+}
+
+.google-icon {
+  width: 24px; /* Slightly larger icon */
+  height: 24px;
+  margin-right: 12px; /* More space for balance */
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
   .auth-container h1 {
-    font-size: 2.5rem;
-    margin-bottom: 10px;
+    font-size: 2rem;
   }
-  
   .auth-container p {
-    font-size: 1.2rem;
-    margin-bottom: 30px;
+    font-size: 1rem;
   }
-  
   .google-signin-btn {
-    display: flex;
-    align-items: center;
-    padding: 12px 24px;
-    font-size: 1.1rem;
-    background-color: #fff;
-    color: #333;
-    border: none;
-    border-radius: 25px;
-    cursor: pointer;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    transition: transform 0.2s, box-shadow 0.2s;
+    padding: 10px 20px;
+    font-size: 1rem;
   }
-  
-  .google-signin-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-  }
-  
-  .google-icon {
-    width: 20px;
-    height: 20px;
-    margin-right: 10px;
-  }
+}
